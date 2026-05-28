@@ -37,6 +37,7 @@ resource "fabric_workspace_git" "azdo" {
 resource "fabric_workspace_git" "github" {
   workspace_id            = "00000000-0000-0000-0000-000000000000"
   initialization_strategy = "PreferWorkspace"
+  target_commit           = "0123456789abcdef0123456789abcdef01234567"
   git_provider_details = {
     git_provider_type = "GitHub"
     owner_name        = "ExampleOwner"

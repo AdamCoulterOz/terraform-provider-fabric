@@ -103,12 +103,36 @@ type resourceWorkspaceGitModel struct {
 	baseWorkspaceGitModel
 
 	InitializationStrategy types.String                                       `tfsdk:"initialization_strategy"`
+	TargetCommit           types.String                                       `tfsdk:"target_commit"`
 	Options                supertypes.SingleNestedObjectValueOf[optionsModel] `tfsdk:"options"`
 	Timeouts               timeoutsR.Value                                    `tfsdk:"timeouts"`
 }
 
 type optionsModel struct {
 	AllowOverrideItems types.Bool `tfsdk:"allow_override_items"`
+}
+
+func (to *resourceWorkspaceGitModel) setTargetCommit(ctx context.Context) diag.Diagnostics {
+	if to.GitSyncDetails.IsNull() || to.GitSyncDetails.IsUnknown() {
+		to.TargetCommit = types.StringNull()
+
+		return nil
+	}
+
+	syncDetails, diags := to.GitSyncDetails.Get(ctx)
+	if diags.HasError() {
+		return diags
+	}
+
+	if syncDetails == nil || syncDetails.Head.IsNull() || syncDetails.Head.IsUnknown() {
+		to.TargetCommit = types.StringNull()
+
+		return nil
+	}
+
+	to.TargetCommit = syncDetails.Head
+
+	return nil
 }
 
 type requestGitConnect struct {
