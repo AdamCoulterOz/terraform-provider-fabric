@@ -58,6 +58,7 @@ resource "fabric_workspace_git" "azdo" {
 resource "fabric_workspace_git" "github" {
   workspace_id            = "00000000-0000-0000-0000-000000000000"
   initialization_strategy = "PreferWorkspace"
+  target_commit           = "0123456789abcdef0123456789abcdef01234567"
   git_provider_details = {
     git_provider_type = "GitHub"
     owner_name        = "ExampleOwner"
@@ -85,6 +86,7 @@ resource "fabric_workspace_git" "github" {
 ### Optional
 
 - `options` (Attributes) <i style="color:red;font-weight: bold">(ForceNew)</i> The options for Git operations. (see [below for nested schema](#nestedatt--options))
+- `target_commit` (String) The full SHA-1 commit hash to sync the workspace to. When omitted, Terraform does not manage the synced commit. Commit hash must be a full 40-character SHA-1 hash.
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 
 ### Read-Only

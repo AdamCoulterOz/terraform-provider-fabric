@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	fabcore "github.com/microsoft/fabric-sdk-go/fabric/core"
 
@@ -84,6 +85,8 @@ func (r *resourceWorkspaceGit) Create(ctx context.Context, req resource.CreateRe
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	targetCommit := plan.TargetCommit
+
 	// Connect.
 	var reqGitConnect requestGitConnect
 
@@ -124,6 +127,10 @@ func (r *resourceWorkspaceGit) Create(ctx context.Context, req resource.CreateRe
 			return
 		}
 
+		if !targetCommit.IsNull() && !targetCommit.IsUnknown() {
+			reqGitUpdateFrom.RemoteCommitHash = targetCommit.ValueStringPointer()
+		}
+
 		_, err = r.client.UpdateFromGit(ctx, plan.WorkspaceID.ValueString(), reqGitUpdateFrom.UpdateFromGitRequest, nil)
 	case fabcore.RequiredActionNone:
 		// Do nothing.
@@ -135,6 +142,14 @@ func (r *resourceWorkspaceGit) Create(ctx context.Context, req resource.CreateRe
 	}
 
 	if resp.Diagnostics.Append(utils.GetDiagsFromError(ctx, err, utils.OperationCreate, nil)...); resp.Diagnostics.HasError() {
+		return
+	}
+
+	if resp.Diagnostics.Append(r.get(ctx, &plan)...); resp.Diagnostics.HasError() {
+		return
+	}
+
+	if resp.Diagnostics.Append(r.syncTargetCommit(ctx, &plan, targetCommit, utils.OperationCreate)...); resp.Diagnostics.HasError() {
 		return
 	}
 
@@ -220,6 +235,12 @@ func (r *resourceWorkspaceGit) Update(ctx context.Context, req resource.UpdateRe
 		return
 	}
 
+	var state resourceWorkspaceGitModel
+
+	if resp.Diagnostics.Append(req.State.Get(ctx, &state)...); resp.Diagnostics.HasError() {
+		return
+	}
+
 	timeout, diags := plan.Timeouts.Update(ctx, r.pConfigData.Timeout)
 	if resp.Diagnostics.Append(diags...); resp.Diagnostics.HasError() {
 		return
@@ -228,18 +249,24 @@ func (r *resourceWorkspaceGit) Update(ctx context.Context, req resource.UpdateRe
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var reqUpdate requestUpdateGitCredentials
+	if !plan.GitCredentials.Equal(state.GitCredentials) {
+		var reqUpdate requestUpdateGitCredentials
 
-	if resp.Diagnostics.Append(reqUpdate.set(ctx, plan)...); resp.Diagnostics.HasError() {
-		return
+		if resp.Diagnostics.Append(reqUpdate.set(ctx, plan)...); resp.Diagnostics.HasError() {
+			return
+		}
+
+		respUpdate, err := r.client.UpdateMyGitCredentials(ctx, plan.WorkspaceID.ValueString(), reqUpdate.UpdateGitCredentialsRequestClassification, nil)
+		if resp.Diagnostics.Append(utils.GetDiagsFromError(ctx, err, utils.OperationUpdate, nil)...); resp.Diagnostics.HasError() {
+			return
+		}
+
+		if resp.Diagnostics.Append(plan.setCredentials(ctx, respUpdate.GitCredentialsConfigurationResponseClassification)...); resp.Diagnostics.HasError() {
+			return
+		}
 	}
 
-	respUpdate, err := r.client.UpdateMyGitCredentials(ctx, plan.WorkspaceID.ValueString(), reqUpdate.UpdateGitCredentialsRequestClassification, nil)
-	if resp.Diagnostics.Append(utils.GetDiagsFromError(ctx, err, utils.OperationUpdate, nil)...); resp.Diagnostics.HasError() {
-		return
-	}
-
-	if resp.Diagnostics.Append(plan.setCredentials(ctx, respUpdate.GitCredentialsConfigurationResponseClassification)...); resp.Diagnostics.HasError() {
+	if resp.Diagnostics.Append(r.syncTargetCommit(ctx, &state, plan.TargetCommit, utils.OperationUpdate)...); resp.Diagnostics.HasError() {
 		return
 	}
 
@@ -309,6 +336,35 @@ func (r *resourceWorkspaceGit) get(ctx context.Context, model *resourceWorkspace
 	}
 
 	if diags := model.setCredentials(ctx, respGetCredentials.GitCredentialsConfigurationResponseClassification); diags.HasError() {
+		return diags
+	}
+
+	if diags := model.setTargetCommit(ctx); diags.HasError() {
+		return diags
+	}
+
+	return nil
+}
+
+func (r *resourceWorkspaceGit) syncTargetCommit(ctx context.Context, model *resourceWorkspaceGitModel, targetCommit types.String, operation utils.Operation) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	if targetCommit.IsNull() || targetCommit.IsUnknown() {
+		return diags
+	}
+
+	if !model.TargetCommit.IsNull() && !model.TargetCommit.IsUnknown() && model.TargetCommit.Equal(targetCommit) {
+		return diags
+	}
+
+	var reqGitUpdateFrom requestGitUpdateFrom
+
+	if diags := reqGitUpdateFrom.set(ctx, *model, targetCommit.ValueStringPointer(), model.InitializationStrategy.ValueStringPointer()); diags.HasError() {
+		return diags
+	}
+
+	_, err := r.client.UpdateFromGit(ctx, model.WorkspaceID.ValueString(), reqGitUpdateFrom.UpdateFromGitRequest, nil)
+	if diags := utils.GetDiagsFromError(ctx, err, operation, nil); diags.HasError() {
 		return diags
 	}
 

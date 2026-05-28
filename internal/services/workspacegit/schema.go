@@ -99,6 +99,19 @@ func itemSchema() superschema.Schema { //nolint:maintidx
 					},
 				},
 			},
+			"target_commit": superschema.StringAttribute{
+				Resource: &schemaR.StringAttribute{
+					MarkdownDescription: "The full SHA-1 commit hash to sync the workspace to. When omitted, Terraform does not manage the synced commit.",
+					Optional:            true,
+					Computed:            true,
+					Validators: []validator.String{
+						stringvalidator.RegexMatches(
+							regexp.MustCompile(`^[0-9a-fA-F]{40}$`),
+							"Commit hash must be a full 40-character SHA-1 hash.",
+						),
+					},
+				},
+			},
 			"options": superschema.SuperSingleNestedAttributeOf[optionsModel]{
 				Resource: &schemaR.SingleNestedAttribute{
 					MarkdownDescription: "The options for Git operations.",
