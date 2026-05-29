@@ -73,6 +73,21 @@ func getResourceFabricItemDefinitionPropertiesSchema[Ttfprop, Titemprop any](ctx
 
 	maps.Copy(attributes, getResourceFabricItemDefinitionAttributes(ctx, r.TypeInfo.Name, r.DefinitionPathDocsURL, r.DefinitionFormats, r.DefinitionPathKeysValidator, r.DefinitionRequired, false))
 
+	attrAdoptExisting := schema.BoolAttribute{
+		MarkdownDescription: fmt.Sprintf(
+			"Adopt an existing %s with the same display name in the workspace during creation instead of creating a new item. If no matching item exists, a new item is created.",
+			r.TypeInfo.Name,
+		),
+		Computed: true,
+	}
+
+	if r.AdoptExisting {
+		attrAdoptExisting.Optional = true
+		attrAdoptExisting.Default = booldefault.StaticBool(false)
+	}
+
+	attributes["adopt_existing"] = attrAdoptExisting
+
 	return schema.Schema{
 		MarkdownDescription: NewResourceMarkdownDescription(r.TypeInfo, false),
 		Attributes:          attributes,

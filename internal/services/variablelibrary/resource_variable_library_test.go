@@ -238,6 +238,43 @@ func TestUnit_VariableLibraryResource_CRUD(t *testing.T) {
 	}))
 }
 
+func TestUnit_VariableLibraryResource_AdoptExisting(t *testing.T) {
+	workspaceID := testhelp.RandomUUID()
+	entityExist := fakes.NewRandomVariableLibraryWithWorkspace(workspaceID)
+
+	fakes.FakeServer.Upsert(entityExist)
+
+	resource.Test(t, testhelp.NewTestUnitCase(t, &testResourceItemFQN, fakes.FakeServer.ServerFactory, nil, []resource.TestStep{
+		{
+			ResourceName: testResourceItemFQN,
+			Config: at.JoinConfigs(
+				testHelperLocals,
+				at.CompileConfig(
+					testResourceItemHeader,
+					map[string]any{
+						"workspace_id":   *entityExist.WorkspaceID,
+						"display_name":   *entityExist.DisplayName,
+						"description":    *entityExist.Description,
+						"folder_id":      *entityExist.FolderID,
+						"adopt_existing": true,
+						"format":         "Default",
+						"definition":     testHelperDefinitionNoValueSets,
+					},
+				),
+			),
+			Check: resource.ComposeAggregateTestCheckFunc(
+				resource.TestCheckResourceAttrPtr(testResourceItemFQN, "id", entityExist.ID),
+				resource.TestCheckResourceAttrPtr(testResourceItemFQN, "display_name", entityExist.DisplayName),
+				resource.TestCheckResourceAttrPtr(testResourceItemFQN, "description", entityExist.Description),
+				resource.TestCheckResourceAttrPtr(testResourceItemFQN, "folder_id", entityExist.FolderID),
+				resource.TestCheckResourceAttr(testResourceItemFQN, "adopt_existing", "true"),
+				resource.TestCheckResourceAttr(testResourceItemFQN, "definition_update_enabled", "true"),
+				resource.TestCheckResourceAttrSet(testResourceItemFQN, "properties.active_value_set_name"),
+			),
+		},
+	}))
+}
+
 func TestAcc_VariableLibraryResource_CRUD_NoDefinition(t *testing.T) {
 	workspace := testhelp.WellKnown()["WorkspaceRS"].(map[string]any)
 	workspaceID := workspace["id"].(string)

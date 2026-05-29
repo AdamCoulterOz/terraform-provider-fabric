@@ -13,6 +13,8 @@ The Variable Library resource allows you to manage a Fabric [Variable Library](h
 
 -> This resource supports Service Principal authentication.
 
+~> When `adopt_existing` is enabled, Terraform adopts the matching existing Variable Library into resource state during create. After adoption, Terraform manages that item like an imported resource, including destroy behavior.
+
 ## Example Usage
 
 ```terraform
@@ -58,7 +60,27 @@ resource "fabric_variable_library" "example_definition_update" {
   }
 }
 
-# Example 4 - Item with custom tokens delimiter
+# Example 4 - Adopt an existing item and update its definition with an additional valueSet
+resource "fabric_variable_library" "example_adopt_existing" {
+  display_name   = "example"
+  description    = "Item adopted from an existing workspace variable library"
+  workspace_id   = "00000000-0000-0000-0000-000000000000"
+  adopt_existing = true
+  format         = "Default"
+  definition = {
+    "settings.json" = {
+      source = "${local.path}/settings.json"
+    }
+    "variables.json" = {
+      source = "${local.path}/variables.json"
+    }
+    "valueSets/environment.json" = {
+      source = "${local.path}/valueSets/valueSet1.json"
+    }
+  }
+}
+
+# Example 5 - Item with custom tokens delimiter
 resource "fabric_variable_library" "example_custom_delimiter" {
   display_name = "example"
   description  = "example with custom tokens delimiter"
@@ -76,7 +98,7 @@ resource "fabric_variable_library" "example_custom_delimiter" {
   }
 }
 
-# Example 5 - Item with parameters processing mode
+# Example 6 - Item with parameters processing mode
 resource "fabric_variable_library" "example_parameters" {
   display_name = "example"
   description  = "example with parameters processing mode"
@@ -113,6 +135,7 @@ resource "fabric_variable_library" "example_parameters" {
 
 ### Optional
 
+- `adopt_existing` (Boolean) Adopt an existing Variable Library with the same display name in the workspace during creation instead of creating a new item. If no matching item exists, a new item is created.
 - `definition` (Attributes Map) Definition parts. Read more about [Variable Library definition part paths](https://learn.microsoft.com/rest/api/fabric/articles/item-management/definitions/variable-library-definition). Accepted path keys: **Default** format: `settings.json`, `valueSets/*.json`, `variables.json` (see [below for nested schema](#nestedatt--definition))
 - `definition_update_enabled` (Boolean) Update definition on change of source content. Default: `true`.
 - `description` (String) The Variable Library description.

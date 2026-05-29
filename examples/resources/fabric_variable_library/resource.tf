@@ -40,7 +40,27 @@ resource "fabric_variable_library" "example_definition_update" {
   }
 }
 
-# Example 4 - Item with custom tokens delimiter
+# Example 4 - Adopt an existing item and update its definition with an additional valueSet
+resource "fabric_variable_library" "example_adopt_existing" {
+  display_name   = "example"
+  description    = "Item adopted from an existing workspace variable library"
+  workspace_id   = "00000000-0000-0000-0000-000000000000"
+  adopt_existing = true
+  format         = "Default"
+  definition = {
+    "settings.json" = {
+      source = "${local.path}/settings.json"
+    }
+    "variables.json" = {
+      source = "${local.path}/variables.json"
+    }
+    "valueSets/environment.json" = {
+      source = "${local.path}/valueSets/valueSet1.json"
+    }
+  }
+}
+
+# Example 5 - Item with custom tokens delimiter
 resource "fabric_variable_library" "example_custom_delimiter" {
   display_name = "example"
   description  = "example with custom tokens delimiter"
@@ -58,7 +78,7 @@ resource "fabric_variable_library" "example_custom_delimiter" {
   }
 }
 
-# Example 5 - Item with parameters processing mode
+# Example 6 - Item with parameters processing mode
 resource "fabric_variable_library" "example_parameters" {
   display_name = "example"
   description  = "example with parameters processing mode"
