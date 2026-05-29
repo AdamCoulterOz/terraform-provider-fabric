@@ -135,6 +135,25 @@ func (to *resourceWorkspaceGitModel) setTargetCommit(ctx context.Context) diag.D
 	return nil
 }
 
+func (to resourceWorkspaceGitModel) currentWorkspaceHead(ctx context.Context) (*string, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	if to.GitSyncDetails.IsNull() || to.GitSyncDetails.IsUnknown() {
+		return nil, diags
+	}
+
+	syncDetails, diags := to.GitSyncDetails.Get(ctx)
+	if diags.HasError() {
+		return nil, diags
+	}
+
+	if syncDetails == nil || syncDetails.Head.IsNull() || syncDetails.Head.IsUnknown() {
+		return nil, diags
+	}
+
+	return syncDetails.Head.ValueStringPointer(), diags
+}
+
 type requestGitConnect struct {
 	fabcore.GitConnectRequest
 }
@@ -240,7 +259,7 @@ type requestGitUpdateFrom struct {
 	fabcore.UpdateFromGitRequest
 }
 
-func (to *requestGitUpdateFrom) set(ctx context.Context, from resourceWorkspaceGitModel, remoteCommitHash, conflictResolutionPolicy *string) diag.Diagnostics {
+func (to *requestGitUpdateFrom) set(ctx context.Context, from resourceWorkspaceGitModel, remoteCommitHash, workspaceHead, conflictResolutionPolicy *string) diag.Diagnostics {
 	policy := fabcore.ConflictResolutionPolicyPreferWorkspace
 	if *conflictResolutionPolicy != "None" {
 		policy = fabcore.ConflictResolutionPolicy(*conflictResolutionPolicy)
@@ -259,9 +278,7 @@ func (to *requestGitUpdateFrom) set(ctx context.Context, from resourceWorkspaceG
 	}
 
 	to.RemoteCommitHash = remoteCommitHash
-	if !from.TargetCommit.IsNull() && !from.TargetCommit.IsUnknown() {
-		to.WorkspaceHead = from.TargetCommit.ValueStringPointer()
-	}
+	to.WorkspaceHead = workspaceHead
 	to.Options = &fabcore.UpdateOptions{
 		AllowOverrideItems: allowOverrideItems,
 	}
