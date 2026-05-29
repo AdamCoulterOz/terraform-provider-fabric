@@ -135,7 +135,7 @@ func (to *resourceWorkspaceGitModel) setTargetCommit(ctx context.Context) diag.D
 	return nil
 }
 
-func (to resourceWorkspaceGitModel) currentWorkspaceHead(ctx context.Context) (*string, diag.Diagnostics) {
+func (to *resourceWorkspaceGitModel) currentWorkspaceHead(ctx context.Context) (*string, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	if to.GitSyncDetails.IsNull() || to.GitSyncDetails.IsUnknown() {

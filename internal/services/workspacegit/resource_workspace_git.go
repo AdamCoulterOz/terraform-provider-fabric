@@ -123,7 +123,8 @@ func (r *resourceWorkspaceGit) Create(ctx context.Context, req resource.CreateRe
 	case fabcore.RequiredActionUpdateFromGit: // Update from Git.
 		var reqGitUpdateFrom requestGitUpdateFrom
 
-		if resp.Diagnostics.Append(reqGitUpdateFrom.set(ctx, plan, gitInitResp.RemoteCommitHash, gitInitResp.WorkspaceHead, plan.InitializationStrategy.ValueStringPointer())...); resp.Diagnostics.HasError() {
+		if resp.Diagnostics.Append(
+			reqGitUpdateFrom.set(ctx, plan, gitInitResp.RemoteCommitHash, gitInitResp.WorkspaceHead, plan.InitializationStrategy.ValueStringPointer())...); resp.Diagnostics.HasError() {
 			return
 		}
 
