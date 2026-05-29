@@ -259,6 +259,9 @@ func (to *requestGitUpdateFrom) set(ctx context.Context, from resourceWorkspaceG
 	}
 
 	to.RemoteCommitHash = remoteCommitHash
+	if !from.TargetCommit.IsNull() && !from.TargetCommit.IsUnknown() {
+		to.WorkspaceHead = from.TargetCommit.ValueStringPointer()
+	}
 	to.Options = &fabcore.UpdateOptions{
 		AllowOverrideItems: allowOverrideItems,
 	}
