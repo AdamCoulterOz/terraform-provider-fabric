@@ -123,7 +123,8 @@ func (r *resourceWorkspaceGit) Create(ctx context.Context, req resource.CreateRe
 	case fabcore.RequiredActionUpdateFromGit: // Update from Git.
 		var reqGitUpdateFrom requestGitUpdateFrom
 
-		if resp.Diagnostics.Append(reqGitUpdateFrom.set(ctx, plan, gitInitResp.RemoteCommitHash, plan.InitializationStrategy.ValueStringPointer())...); resp.Diagnostics.HasError() {
+		if resp.Diagnostics.Append(
+			reqGitUpdateFrom.set(ctx, plan, gitInitResp.RemoteCommitHash, gitInitResp.WorkspaceHead, plan.InitializationStrategy.ValueStringPointer())...); resp.Diagnostics.HasError() {
 			return
 		}
 
@@ -359,7 +360,12 @@ func (r *resourceWorkspaceGit) syncTargetCommit(ctx context.Context, model *reso
 
 	var reqGitUpdateFrom requestGitUpdateFrom
 
-	if diags := reqGitUpdateFrom.set(ctx, *model, targetCommit.ValueStringPointer(), model.InitializationStrategy.ValueStringPointer()); diags.HasError() {
+	workspaceHead, diags := model.currentWorkspaceHead(ctx)
+	if diags.HasError() {
+		return diags
+	}
+
+	if diags := reqGitUpdateFrom.set(ctx, *model, targetCommit.ValueStringPointer(), workspaceHead, model.InitializationStrategy.ValueStringPointer()); diags.HasError() {
 		return diags
 	}
 
