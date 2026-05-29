@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/microsoft/fabric-sdk-go/fabric"
+	fabcore "github.com/microsoft/fabric-sdk-go/fabric/core"
 	fabvariablelibrary "github.com/microsoft/fabric-sdk-go/fabric/variablelibrary"
 	supertypes "github.com/orange-cloudavenue/terraform-plugin-framework-supertypes"
 
@@ -53,6 +54,28 @@ func NewResourceVariableLibrary() resource.Resource {
 		return nil
 	}
 
+	itemListGetter := func(ctx context.Context, fabricClient fabric.Client, model fabricitem.ResourceFabricItemDefinitionPropertiesModel[variableLibraryPropertiesModel, fabvariablelibrary.Properties], errNotFound fabcore.ResponseError, fabricItem *fabricitem.FabricItemProperties[fabvariablelibrary.Properties]) error {
+		client := fabvariablelibrary.NewClientFactoryWithClient(fabricClient).NewItemsClient()
+
+		pager := client.NewListVariableLibrariesPager(model.WorkspaceID.ValueString(), nil)
+		for pager.More() {
+			page, err := pager.NextPage(ctx)
+			if err != nil {
+				return err
+			}
+
+			for _, entity := range page.Value {
+				if *entity.DisplayName == model.DisplayName.ValueString() {
+					fabricItem.Set(entity)
+
+					return nil
+				}
+			}
+		}
+
+		return &errNotFound
+	}
+
 	config := fabricitem.ResourceFabricItemDefinitionProperties[variableLibraryPropertiesModel, fabvariablelibrary.Properties]{
 		ResourceFabricItemDefinition: fabricitem.ResourceFabricItemDefinition{
 			TypeInfo:              ItemTypeInfo,
@@ -79,6 +102,8 @@ func NewResourceVariableLibrary() resource.Resource {
 		PropertiesAttributes: getResourceVariableLibraryPropertiesAttributes(),
 		PropertiesSetter:     propertiesSetter,
 		ItemGetter:           itemGetter,
+		ItemListGetter:       itemListGetter,
+		AdoptExisting:        true,
 	}
 
 	return fabricitem.NewResourceFabricItemDefinitionProperties(config)

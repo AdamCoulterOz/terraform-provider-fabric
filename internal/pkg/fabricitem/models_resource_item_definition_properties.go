@@ -15,5 +15,6 @@ type ResourceFabricItemDefinitionPropertiesModel[Ttfprop, Titemprop any] struct 
 	Format                  types.String                                                             `tfsdk:"format"`
 	DefinitionUpdateEnabled types.Bool                                                               `tfsdk:"definition_update_enabled"`
 	Definition              supertypes.MapNestedObjectValueOf[resourceFabricItemDefinitionPartModel] `tfsdk:"definition"`
+	AdoptExisting           types.Bool                                                               `tfsdk:"adopt_existing"`
 	Timeouts                timeouts.Value                                                           `tfsdk:"timeouts"`
 }

@@ -5,7 +5,9 @@ package fabricitem
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -38,6 +40,8 @@ type ResourceFabricItemDefinitionProperties[Ttfprop, Titemprop any] struct {
 	PropertiesAttributes map[string]schema.Attribute
 	PropertiesSetter     func(ctx context.Context, from *Titemprop, to *ResourceFabricItemDefinitionPropertiesModel[Ttfprop, Titemprop]) diag.Diagnostics
 	ItemGetter           func(ctx context.Context, fabricClient fabric.Client, model ResourceFabricItemDefinitionPropertiesModel[Ttfprop, Titemprop], fabricItem *FabricItemProperties[Titemprop]) error
+	ItemListGetter       func(ctx context.Context, fabricClient fabric.Client, model ResourceFabricItemDefinitionPropertiesModel[Ttfprop, Titemprop], errNotFound fabcore.ResponseError, fabricItem *FabricItemProperties[Titemprop]) error
+	AdoptExisting        bool
 }
 
 func NewResourceFabricItemDefinitionProperties[Ttfprop, Titemprop any](config ResourceFabricItemDefinitionProperties[Ttfprop, Titemprop]) resource.Resource {
@@ -147,6 +151,49 @@ func (r *ResourceFabricItemDefinitionProperties[Ttfprop, Titemprop]) Create(ctx 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	var adoptExisting types.Bool
+	if r.AdoptExisting {
+		if resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("adopt_existing"), &adoptExisting)...); resp.Diagnostics.HasError() {
+			return
+		}
+	}
+
+	if adoptExisting.ValueBool() && r.ItemListGetter != nil {
+		state := ResourceFabricItemDefinitionPropertiesModel[Ttfprop, Titemprop]{
+			FabricItemPropertiesModel: FabricItemPropertiesModel[Ttfprop, Titemprop]{
+				WorkspaceID: plan.WorkspaceID,
+				DisplayName: plan.DisplayName,
+			},
+			Definition: supertypes.NewMapNestedObjectValueOfNull[resourceFabricItemDefinitionPartModel](ctx),
+		}
+
+		adopted, diags := r.getByDisplayName(ctx, &state)
+		if resp.Diagnostics.Append(diags...); resp.Diagnostics.HasError() {
+			return
+		}
+
+		if adopted {
+			plan.ID = state.ID
+			plan.WorkspaceID = state.WorkspaceID
+
+			if resp.Diagnostics.Append(r.update(ctx, &plan, &state)...); resp.Diagnostics.HasError() {
+				return
+			}
+
+			if resp.Diagnostics.Append(r.get(ctx, &plan)...); resp.Diagnostics.HasError() {
+				return
+			}
+
+			resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+
+			tflog.Debug(ctx, "CREATE", map[string]any{
+				"action": "end",
+			})
+
+			return
+		}
+	}
+
 	var reqCreate requestCreateFabricItem
 
 	reqCreate.setDisplayName(plan.DisplayName)
@@ -247,51 +294,8 @@ func (r *ResourceFabricItemDefinitionProperties[Ttfprop, Titemprop]) Update(ctx 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var reqUpdatePlan requestUpdateFabricItem
-
-	if fabricItemCheckUpdate(plan.DisplayName, plan.Description, state.DisplayName, state.Description, &reqUpdatePlan) {
-		tflog.Trace(ctx, fmt.Sprintf("updating %s (WorkspaceID: %s ItemID: %s)", r.TypeInfo.Name, plan.WorkspaceID.ValueString(), plan.ID.ValueString()))
-
-		_, err := UpdateItem(ctx, r.client, plan.WorkspaceID.ValueString(), plan.ID.ValueString(), reqUpdatePlan.UpdateItemRequest)
-		if resp.Diagnostics.Append(utils.GetDiagsFromError(ctx, err, utils.OperationUpdate, nil)...); resp.Diagnostics.HasError() {
-			return
-		}
-	}
-
-	var reqMovePlan requestMoveFabricItem
-
-	if fabricItemCheckMove(plan.FolderID, state.FolderID, &reqMovePlan) {
-		tflog.Trace(ctx, fmt.Sprintf("moving %s (WorkspaceID: %s ItemID: %s)", r.TypeInfo.Name, plan.WorkspaceID.ValueString(), plan.ID.ValueString()))
-
-		_, err := MoveItem(ctx, r.client, plan.WorkspaceID.ValueString(), plan.ID.ValueString(), reqMovePlan.MoveItemRequest)
-		if resp.Diagnostics.Append(utils.GetDiagsFromError(ctx, err, utils.OperationUpdate, nil)...); resp.Diagnostics.HasError() {
-			return
-		}
-	}
-
-	var reqUpdateDefinition requestUpdateFabricItemDefinition
-
-	doUpdateDefinition, diags := fabricItemCheckUpdateDefinition(
-		ctx,
-		plan.Definition,
-		state.Definition,
-		plan.Format,
-		plan.DefinitionUpdateEnabled,
-		r.DefinitionEmpty,
-		r.DefinitionFormats,
-		&reqUpdateDefinition,
-	)
-	if resp.Diagnostics.Append(diags...); resp.Diagnostics.HasError() {
+	if resp.Diagnostics.Append(r.update(ctx, &plan, &state)...); resp.Diagnostics.HasError() {
 		return
-	}
-
-	if doUpdateDefinition {
-		tflog.Trace(ctx, fmt.Sprintf("updating %s definition", r.TypeInfo.Name))
-
-		_, err := r.client.UpdateItemDefinition(ctx, plan.WorkspaceID.ValueString(), plan.ID.ValueString(), reqUpdateDefinition.UpdateItemDefinitionRequest, nil)
-		if resp.Diagnostics.Append(utils.GetDiagsFromError(ctx, err, utils.OperationUpdate, nil)...); resp.Diagnostics.HasError() {
-			return
-		}
 	}
 
 	// r.get() updates the plan with current server state
@@ -308,6 +312,62 @@ func (r *ResourceFabricItemDefinitionProperties[Ttfprop, Titemprop]) Update(ctx 
 	if resp.Diagnostics.HasError() {
 		return
 	}
+}
+
+func (r *ResourceFabricItemDefinitionProperties[Ttfprop, Titemprop]) update(
+	ctx context.Context,
+	plan *ResourceFabricItemDefinitionPropertiesModel[Ttfprop, Titemprop],
+	state *ResourceFabricItemDefinitionPropertiesModel[Ttfprop, Titemprop],
+) diag.Diagnostics {
+	var diags diag.Diagnostics
+	var reqUpdatePlan requestUpdateFabricItem
+
+	if fabricItemCheckUpdate(plan.DisplayName, plan.Description, state.DisplayName, state.Description, &reqUpdatePlan) {
+		tflog.Trace(ctx, fmt.Sprintf("updating %s (WorkspaceID: %s ItemID: %s)", r.TypeInfo.Name, plan.WorkspaceID.ValueString(), plan.ID.ValueString()))
+
+		_, err := UpdateItem(ctx, r.client, plan.WorkspaceID.ValueString(), plan.ID.ValueString(), reqUpdatePlan.UpdateItemRequest)
+		if diags.Append(utils.GetDiagsFromError(ctx, err, utils.OperationUpdate, nil)...); diags.HasError() {
+			return diags
+		}
+	}
+
+	var reqMovePlan requestMoveFabricItem
+
+	if fabricItemCheckMove(plan.FolderID, state.FolderID, &reqMovePlan) {
+		tflog.Trace(ctx, fmt.Sprintf("moving %s (WorkspaceID: %s ItemID: %s)", r.TypeInfo.Name, plan.WorkspaceID.ValueString(), plan.ID.ValueString()))
+
+		_, err := MoveItem(ctx, r.client, plan.WorkspaceID.ValueString(), plan.ID.ValueString(), reqMovePlan.MoveItemRequest)
+		if diags.Append(utils.GetDiagsFromError(ctx, err, utils.OperationUpdate, nil)...); diags.HasError() {
+			return diags
+		}
+	}
+
+	var reqUpdateDefinition requestUpdateFabricItemDefinition
+
+	doUpdateDefinition, diags := fabricItemCheckUpdateDefinition(
+		ctx,
+		plan.Definition,
+		state.Definition,
+		plan.Format,
+		plan.DefinitionUpdateEnabled,
+		r.DefinitionEmpty,
+		r.DefinitionFormats,
+		&reqUpdateDefinition,
+	)
+	if diags.HasError() {
+		return diags
+	}
+
+	if doUpdateDefinition {
+		tflog.Trace(ctx, fmt.Sprintf("updating %s definition", r.TypeInfo.Name))
+
+		_, err := r.client.UpdateItemDefinition(ctx, plan.WorkspaceID.ValueString(), plan.ID.ValueString(), reqUpdateDefinition.UpdateItemDefinitionRequest, nil)
+		if diags.Append(utils.GetDiagsFromError(ctx, err, utils.OperationUpdate, nil)...); diags.HasError() {
+			return diags
+		}
+	}
+
+	return nil
 }
 
 func (r *ResourceFabricItemDefinitionProperties[Ttfprop, Titemprop]) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -429,5 +489,55 @@ func (r *ResourceFabricItemDefinitionProperties[Ttfprop, Titemprop]) get(
 
 	model.set(fabricItem)
 
+	if !r.AdoptExisting {
+		model.AdoptExisting = types.BoolValue(false)
+	}
+
 	return r.PropertiesSetter(ctx, fabricItem.Properties, model)
+}
+
+func (r *ResourceFabricItemDefinitionProperties[Ttfprop, Titemprop]) getByDisplayName(
+	ctx context.Context,
+	model *ResourceFabricItemDefinitionPropertiesModel[Ttfprop, Titemprop],
+) (bool, diag.Diagnostics) {
+	tflog.Trace(ctx, fmt.Sprintf("getting %s by Display Name: %s", r.TypeInfo.Name, model.DisplayName.ValueString()))
+
+	var diags diag.Diagnostics
+
+	errNotFoundCode := fabcore.ErrCommon.EntityNotFound.Error()
+	errNotFoundMsg := fmt.Sprintf("Unable to find %s with 'display_name': %s in the Workspace ID: %s", r.TypeInfo.Name, model.DisplayName.ValueString(), model.WorkspaceID.ValueString())
+
+	errNotFound := fabcore.ResponseError{
+		ErrorCode:  errNotFoundCode,
+		StatusCode: http.StatusNotFound,
+		ErrorResponse: &fabcore.ErrorResponse{
+			ErrorCode: &errNotFoundCode,
+			Message:   &errNotFoundMsg,
+		},
+	}
+
+	var fabricItem FabricItemProperties[Titemprop]
+
+	err := r.ItemListGetter(ctx, *r.pConfigData.FabricClient, *model, errNotFound, &fabricItem)
+
+	var responseError *fabcore.ResponseError
+	if errors.As(err, &responseError) && responseError.ErrorCode == errNotFoundCode {
+		return false, diags
+	}
+
+	if diags := utils.GetDiagsFromError(ctx, err, utils.OperationRead, nil); diags.HasError() {
+		return false, diags
+	}
+
+	model.set(fabricItem)
+
+	if !r.AdoptExisting {
+		model.AdoptExisting = types.BoolValue(false)
+	}
+
+	if diags := r.PropertiesSetter(ctx, fabricItem.Properties, model); diags.HasError() {
+		return false, diags
+	}
+
+	return true, diags
 }
